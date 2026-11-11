@@ -56,8 +56,18 @@ fn write_wav(out: &Path, format: &DeviceFormat, data: &[u8]) -> Result<(), Strin
         .map_err(|e| format!("写入 {}：{e}", out.display()))
 }
 
+/// [`decode`] 的结果。
+#[derive(Debug)]
+pub struct Decoded {
+    /// 给用户看的说明。
+    pub message: String,
+    /// 解码中途出错：输出文件只有出错前的完整帧（命令以失败的退出码结束）。
+    pub partial: bool,
+}
+
 /// 用格式集合 `formats` 的解码器解码 `input`，经 pack 写成标准 WAV；返回给用户看的说明。
-pub fn decode<F: Formats>(formats: &F, input: &Path, out: &Path) -> Result<String, String> {
+/// 一帧都没有解出时为 `Err`；解出若干帧之后出错时写出已有的帧，结果标为不完整。
+pub fn decode<F: Formats>(formats: &F, input: &Path, out: &Path) -> Result<Decoded, String> {
     let mut data = Vec::new();
     File::open(input)
         .and_then(|mut f| f.read_to_end(&mut data))
@@ -195,7 +205,10 @@ pub fn decode<F: Formats>(formats: &F, input: &Path, out: &Path) -> Result<Strin
             detail(&d)
         ));
     }
-    Ok(msg)
+    Ok(Decoded {
+        message: msg,
+        partial: ended.is_err(),
+    })
 }
 
 fn detail<D: Diagnostics>(d: &D) -> String {
@@ -420,6 +433,33 @@ mod tests {
             assert!(wav_data(&b) == &data[..], "f{bits} 读回");
         }
         assert!(tone(&tmp("x.aiff"), 48_000, 32, true, 0.1, 997.0).is_err());
+    }
+
+    /// 解出若干帧之后出错（源比 data 声明的短）：已有的帧照常写出，结果标为不完整；完整的文件
+    /// 不标。
+    #[test]
+    fn decode_marks_partial_output() {
+        let (full, cut, back) = (tmp("full.wav"), tmp("cut.wav"), tmp("cut-back.wav"));
+        assert!(tone(&full, 44_100, 16, false, 0.1, 1000.0).is_ok());
+        let bytes = std::fs::read(&full).unwrap_or_default();
+        assert!(std::fs::write(&cut, &bytes[..bytes.len() / 2]).is_ok());
+        let whole = decode(&qy_player::Builtin, &full, &back);
+        let part = decode(&qy_player::Builtin, &cut, &back);
+        let written = std::fs::read(&back).unwrap_or_default();
+        let _ = (
+            std::fs::remove_file(&full),
+            std::fs::remove_file(&cut),
+            std::fs::remove_file(&back),
+        );
+        assert!(matches!(&whole, Ok(d) if !d.partial), "{whole:?}");
+        let Ok(part) = part else {
+            panic!("{part:?}");
+        };
+        assert!(part.partial, "{}", part.message);
+        assert!(part.message.contains("Truncated"), "{}", part.message);
+        // 写出的是出错前的完整帧：不超过原数据的一半，且非空。
+        let n = wav_data(&written).len();
+        assert!(n > 0 && n <= bytes.len() / 2 && n.is_multiple_of(4), "{n}");
     }
 
     /// AIFF 测试音：COMM 的 80 位采样率与已知编码相同（44 100 Hz = 0x400E AC44 0000 0000 0000），

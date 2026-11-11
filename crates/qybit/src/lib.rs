@@ -9,20 +9,28 @@
 mod args;
 mod diag;
 
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 use qy_player::{Diagnostics, Formats, HostResources};
 
 use args::{Command, parse, usage};
 
-/// 按进程的命令行参数运行（E2：格式由调用方给出）。
+/// 按进程的命令行参数运行（E2：格式由调用方给出）。参数按系统原样读取：文件名不是 UTF-8
+/// （如旧编码留下的文件名）时照常打开，不因此 panic。
 pub fn run<F: Formats>(formats: F) -> ExitCode {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    run_args(&formats, &argv)
+    let argv: Vec<OsString> = std::env::args_os().skip(1).collect();
+    run_args_os(&formats, &argv)
 }
 
 /// 按给定参数运行（不含程序名）。
 pub fn run_args<F: Formats>(formats: &F, argv: &[String]) -> ExitCode {
+    let argv: Vec<OsString> = argv.iter().map(OsString::from).collect();
+    run_args_os(formats, &argv)
+}
+
+/// 同 [`run_args`]，参数为系统原样的字符串（文件路径可以不是 UTF-8）。
+pub fn run_args_os<F: Formats>(formats: &F, argv: &[OsString]) -> ExitCode {
     match parse(argv, formats.extensions()) {
         Err(e) => {
             eprintln!("错误：{e}\n\n{}", usage(formats.names()));
@@ -36,7 +44,16 @@ pub fn run_args<F: Formats>(formats: &F, argv: &[String]) -> ExitCode {
             println!("qybit {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
-        Ok(Command::Decode { input, out }) => report(diag::decode(formats, &input, &out)),
+        Ok(Command::Decode { input, out }) => match diag::decode(formats, &input, &out) {
+            // 中途出错：已有的帧写出并照常说明，但命令以失败结束（脚本可据此判断文件有问题）。
+            Ok(d) if d.partial => {
+                println!("{}", d.message);
+                eprintln!("错误：解码中途出错，输出文件不完整");
+                ExitCode::FAILURE
+            }
+            Ok(d) => report(Ok(d.message)),
+            Err(e) => report(Err(e)),
+        },
         Ok(Command::Tone {
             out,
             rate,
