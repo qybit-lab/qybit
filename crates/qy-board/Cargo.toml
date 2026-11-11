@@ -4,7 +4,7 @@ description = "QyBit 板级适配层（M3 T2）：每块板一个模块，按 Ca
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.88"
-license = "MIT OR Apache-2.0"
+license = "PolyForm-Noncommercial-1.0.0"
 repository = "https://github.com/qybit-lab/qybit"
 publish = false
 

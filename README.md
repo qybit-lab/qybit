@@ -173,4 +173,10 @@ cargo test --workspace
 
 ## 许可
 
-MIT 或 Apache-2.0，任选其一。
+QyBit 按 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，版权声明见 [NOTICE](NOTICE)。
+
+- **非商业用途免费**：个人使用、学习、研究、测试，以及公益、教育、科研和政府机构的使用，都可以免费使用、修改和分发。分发时要附上 `LICENSE` 和 `NOTICE` 中的 `Required Notice` 一行。
+- **商业用途需要另行授权并付费**：把 QyBit 或它的任何部分（包括核心与解码器 crate）用于商业产品、商业服务或其他营利目的，或者集成进用于销售的硬件，需要事先取得商业许可。请在 [GitHub 仓库](https://github.com/qybit-lab/qybit/issues) 提一个 issue 说明用途，以便联系商谈授权。
+- 基于 QyBit 的扩展（如按“扩展格式”一节接入的解码器）属于基于本软件的新作品，同样受上述条款约束；其中的商业用途也需要商业许可。
+
+本许可自加入 `LICENSE` 文件的提交起生效。此前按 MIT OR Apache-2.0 发布的版本（`v0.1.0` 及更早的提交）不受影响，已经取得的人仍可按当时的条款使用那些版本。第三方依赖各自按其许可证授权。

@@ -7,7 +7,7 @@ name = "gui-proto-linux"
 version = "0.0.0"
 edition = "2024"
 publish = false
-license = "MIT OR Apache-2.0"
+license = "PolyForm-Noncommercial-1.0.0"
 
 [workspace]
 
