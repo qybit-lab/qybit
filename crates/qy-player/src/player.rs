@@ -637,6 +637,11 @@ impl<B: Backend, S: TrackSource, D: Decoder + Resources + Diagnostics> Player<'_
                         "  已跳过文件开头的 ID3v2 标签（{tag} 字节，元数据，不含音频）"
                     ));
                 }
+                let mut notes = Vec::new();
+                self.res.engine.decoder().end_notes(&mut notes);
+                for n in notes {
+                    self.line(&format!("  {n}"));
+                }
             }
             HostAction::SelectDevice { .. } => {
                 // 复用策略为 Accepts，引擎不会请求选择设备格式。
@@ -1580,6 +1585,53 @@ mod tests {
         let outs = b.outputs();
         assert_eq!(outs.len(), 1);
         check_output(&outs[0], &data_chunk(&wav));
+    }
+
+    /// FLAC 文件末尾附加的 ID3v1 标签：码流按声明的总样本数解码完整后正常结束，实时输出写明其后
+    /// 的数据未读取；播放列表继续播放下一首（此前在该处以 LostSync 失败，列表停止），设备字节与
+    /// 无标签文件相同。
+    #[cfg(feature = "flac")]
+    #[test]
+    fn trailing_tag_after_flac_stream_does_not_stop_the_playlist() {
+        let name = "cli_16_stereo_44k_default.flac";
+        let mut file = std::fs::read(flac_fixture_path(name)).unwrap_or_default();
+        assert!(!file.is_empty());
+        file.extend_from_slice(b"TAG");
+        file.extend_from_slice(&[b' '; 125]);
+        let path = std::env::temp_dir().join(format!("qybit-id3v1-{}.flac", std::process::id()));
+        assert!(std::fs::write(&path, &file).is_ok());
+        let files = [path.clone(), fixture_path("pcm16_stereo_44k.wav")];
+        let mut b = backend(&ALL, FakeDevice::Packet);
+        let Ok(mut res) = HostResources::new() else {
+            panic!("res");
+        };
+        let mut lines = Vec::new();
+        let r = play_with(
+            &mut b,
+            &mut res,
+            &mut Files(&files),
+            PlayControl {
+                on_line: &mut |l: &str| lines.push(l.to_string()),
+                stop: None,
+                commands: None,
+                first: 0,
+                on_status: None,
+            },
+        );
+        let _ = std::fs::remove_file(&path);
+        let all = lines.join("\n");
+        assert!(r.finished && r.software_path_intact(), "{all}");
+        assert_eq!(r.fault, None, "{all}");
+        assert!(all.contains("其后还有不属于码流的数据"), "{all}");
+        // 两首同为 44.1 kHz / 16 位立体声：一个设备流，FLAC 的全部样本之后紧接 WAV 的样本。
+        let outs = b.outputs();
+        assert_eq!(outs.len(), 1);
+        let mut expected: Vec<u8> = flac_reference("cli_16_stereo_44k_default")
+            .iter()
+            .flat_map(|&v| (v as i16).to_le_bytes())
+            .collect();
+        expected.extend_from_slice(&data_chunk(&fixture("pcm16_stereo_44k.wav")));
+        check_output(&outs[0], &expected);
     }
 
     /// W1：修正按曲目写入报告（不改样本：设备字节等于独立参考）；R5 截断写明缺少的字节数；

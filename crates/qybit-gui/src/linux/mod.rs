@@ -234,8 +234,8 @@ pub fn run<F: qy_player::Formats>(formats: F) -> ExitCode {
     }
     f.repaint();
 
-    // 从终端启动时的 Ctrl+C：与关闭窗口相同地退出（停止播放、恢复设备硬件音量、保存设置）；
-    // 再按一次按默认方式结束进程。
+    // 从终端启动时的 Ctrl+C，以及终止请求（SIGTERM）与终端挂断（SIGHUP）：与关闭窗口相同地退出
+    // （停止播放、恢复设备硬件音量、保存设置）；再收到一次按默认方式结束进程。
     let interrupted = qy_host_alsa::linux::interrupt::install().ok();
     let mut next_poll = Instant::now() + DEVICE_POLL;
     let mut traffic = (Instant::now(), 0u64);

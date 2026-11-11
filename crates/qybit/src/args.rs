@@ -1,5 +1,6 @@
 //! 命令行参数解析（与平台无关）。
 
+use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
 /// 帮助文字的模板；`{formats}` 由 [`usage`] 换成格式名称（E2）。
@@ -7,12 +8,14 @@ const USAGE: &str = "\
 用法:
   qybit list-devices                         列出可用输出设备（Windows：端点 ID 与名称；Linux：hw 设备名）
   qybit --device <设备> [--container 16|24|32] [--mono-to-stereo] [--float-to-int]
-        [--volume <N>%|off] [--volume-control <控制>] <文件>...
-                                             按顺序播放 {formats}（按文件头识别）；Ctrl+C 停止并输出报告
+        [--volume <N>%|off] [--volume-control <控制>] [--] <文件>...
+                                             按顺序播放 {formats}（按文件头识别）；Ctrl+C 停止并输出报告；
+                                             文件名以 - 开头时写在单独的 -- 之后
   qybit matrix --device <设备> [--out <目录>]
                                              运行设备格式矩阵，写出 JSON/CSV 报告
   qybit mixer --device <设备>                Linux：列出声卡的硬件混音器（静音开关、音量、dB），只读
-  qybit decode <输入> <输出.wav>              诊断：自有解码 + pack 写成标准 WAV，可用任何播放器试听
+  qybit decode <输入> <输出.wav>              诊断：自有解码 + pack 写成标准 WAV，可用任何播放器试听；
+                                             解码中途出错时写出出错前的完整帧，退出码为 1
   qybit tone <输出.wav|.aiff> [--rate 44100] [--bits 16|24|32 | --float 32|64] [--seconds 5] [--freq 1000]
                                              诊断：写一个双声道正弦测试音（约 −12 dBFS）；输出文件扩展名为
                                              .aif/.aiff 时写 AIFF（整数），否则写 WAV；--float 写 IEEE 浮点 WAV
@@ -36,9 +39,9 @@ PowerShell 会把未加引号的 {…} 当成脚本块，端点 ID 要加单引�
 在该处停止。
 
 --volume（Linux）：播放期间把设备自身的硬件音量设为 N%（默认 40%，百分比与 alsamixer 相同），并打开
-该组的静音开关，播放结束或 Ctrl+C 后恢复原值；off 为不调整。只调设备的硬件控制，送出的数据不变；
+该组的静音开关，播放结束、Ctrl+C 或收到终止信号（kill、关闭终端）后恢复原值；off 为不调整。只调设备的硬件控制，送出的数据不变；
 设备没有可用的硬件音量时照常播放并说明原因，不以软件缩放代替。控制按标准名称 Master、PCM 选择，
---volume-control 可指定（如 Headphone）。进程被强制结束（如连按两次 Ctrl+C）时来不及恢复。
+--volume-control 可指定（如 Headphone）。进程被强制结束（如连按两次 Ctrl+C、kill -9）时来不及恢复。
 
 退出码：0 完整播放；2 播放完成但有欠载；1 失败（含设备不支持、打开失败、设备错误、中断）。";
 
@@ -103,39 +106,59 @@ pub fn usage(names: &str) -> String {
     USAGE.replace("{formats}", names)
 }
 
+/// 一个参数：`text` 用于识别选项与读取选项的值（不是 UTF-8 的参数按替换字符显示，不会与任何选项
+/// 相同）；`os` 为原样的参数，文件路径取它，文件名不是 UTF-8 时也能打开。
+#[derive(Clone, Copy)]
+struct Arg<'a> {
+    text: &'a str,
+    os: &'a OsStr,
+}
+
+impl Arg<'_> {
+    fn path(&self) -> PathBuf {
+        PathBuf::from(self.os)
+    }
+}
+
 /// 解析命令行；`exts` 为可播放的扩展名（小写，不含点），用于识别没传进来的设备 ID。
-pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
-    let mut it = args.iter().map(String::as_str);
-    match it.next() {
+/// 播放命令中单独的 `--` 之后的参数都按文件处理（文件名以 `-` 开头时用）。
+pub fn parse(args: &[OsString], exts: &[&str]) -> Result<Command, String> {
+    let texts: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let mut it = texts.iter().zip(args).map(|(text, os)| Arg { text, os });
+    let first = it.next();
+    match first.map(|a| a.text) {
         None | Some("-h" | "--help" | "help") => Ok(Command::Help),
         Some("--version" | "-V") => Ok(Command::Version),
         Some("list-devices") => match it.next() {
             None => Ok(Command::ListDevices),
-            Some(x) => Err(format!("list-devices 不接受参数：{x}")),
+            Some(x) => Err(format!("list-devices 不接受参数：{}", x.text)),
         },
         Some("decode") => match (it.next(), it.next(), it.next()) {
-            (Some(i), Some(o), None) if !i.starts_with('-') && !o.starts_with('-') => {
+            (Some(i), Some(o), None) if !i.text.starts_with('-') && !o.text.starts_with('-') => {
                 Ok(Command::Decode {
-                    input: PathBuf::from(i),
-                    out: PathBuf::from(o),
+                    input: i.path(),
+                    out: o.path(),
                 })
             }
             _ => Err("decode 需要两个参数：<输入文件> <输出.wav>".into()),
         },
         Some("tone") => {
             let out = match it.next() {
-                Some(o) if !o.starts_with('-') => PathBuf::from(o),
+                Some(o) if !o.text.starts_with('-') => o.path(),
                 _ => return Err("tone 需要输出文件：qybit tone <输出.wav>".into()),
             };
             let (mut rate, mut bits, mut seconds, mut freq) = (44_100u32, 16u8, 5.0f64, 1000.0f64);
             let (mut float, mut int_bits) = (false, false);
-            while let Some(a) = it.next() {
-                let v = value(&mut it, a)?;
+            while let Some(a) = it.next().map(|a| a.text) {
+                let v = value(&mut it, a)?.text;
                 let bad = || format!("{a} 的值无效：{v}");
                 match a {
                     "--rate" => rate = v.parse().ok().filter(|&r| r > 0).ok_or_else(bad)?,
                     "--bits" => {
-                        bits = match v.as_str() {
+                        bits = match v {
                             "16" => 16,
                             "24" => 24,
                             "32" => 32,
@@ -144,7 +167,7 @@ pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
                         int_bits = true;
                     }
                     "--float" => {
-                        bits = match v.as_str() {
+                        bits = match v {
                             "32" => 32,
                             "64" => 64,
                             _ => return Err(bad()),
@@ -184,9 +207,9 @@ pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
             let mut device = None;
             let mut out = None;
             while let Some(a) = it.next() {
-                match a {
+                match a.text {
                     "--device" => device = Some(device_value(&mut it, exts)?),
-                    "--out" => out = Some(PathBuf::from(value(&mut it, "--out")?)),
+                    "--out" => out = Some(value(&mut it, "--out")?.path()),
                     x => return Err(format!("未知参数：{x}")),
                 }
             }
@@ -198,7 +221,7 @@ pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
         Some("mixer") => {
             let mut device = None;
             while let Some(a) = it.next() {
-                match a {
+                match a.text {
                     "--device" => device = Some(device_value(&mut it, exts)?),
                     x => {
                         return Err(format!(
@@ -219,10 +242,17 @@ pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
             let mut float_to_int = false;
             let mut volume = Volume::Default;
             let mut volume_control = None;
-            while let Some(a) = it.next() {
-                if a == "--volume" {
-                    let v = value(&mut it, "--volume")?;
-                    volume = match v.as_str() {
+            // 单独的 `--` 之后都是文件。
+            let mut only_files = false;
+            while let Some(arg) = it.next() {
+                let a = arg.text;
+                if only_files {
+                    files.push(arg.path());
+                } else if a == "--" {
+                    only_files = true;
+                } else if a == "--volume" {
+                    let v = value(&mut it, "--volume")?.text;
+                    volume = match v {
                         "off" => Volume::Off,
                         x => match x.strip_suffix('%').and_then(|n| n.parse::<u32>().ok()) {
                             Some(n) if n <= 100 => Volume::Percent(n),
@@ -234,13 +264,13 @@ pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
                         },
                     };
                 } else if a == "--volume-control" {
-                    volume_control = Some(value(&mut it, "--volume-control")?);
+                    volume_control = Some(value(&mut it, "--volume-control")?.text.to_string());
                 } else if a == "--mono-to-stereo" {
                     mono_to_stereo = true;
                 } else if a == "--float-to-int" {
                     float_to_int = true;
                 } else if a == "--container" {
-                    container = Some(match value(&mut it, "--container")?.as_str() {
+                    container = Some(match value(&mut it, "--container")?.text {
                         "16" => 16,
                         "24" => 24,
                         "32" => 32,
@@ -249,7 +279,7 @@ pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
                 } else if a.starts_with('-') {
                     return Err(format!("未知参数：{a}"));
                 } else {
-                    files.push(PathBuf::from(a));
+                    files.push(arg.path());
                 }
             }
             if files.is_empty() {
@@ -275,10 +305,10 @@ pub fn parse(args: &[String], exts: &[&str]) -> Result<Command, String> {
 /// `--device` 的值。值看起来是音频文件时说明设备 ID 没有传进来：最常见的原因是 PowerShell 把
 /// 未加引号的 `{…}`（WASAPI 端点 ID 的写法）当成脚本块吞掉了，直接给出原因而不是“找不到设备”。
 fn device_value<'a>(
-    it: &mut impl Iterator<Item = &'a str>,
+    it: &mut impl Iterator<Item = Arg<'a>>,
     exts: &[&str],
 ) -> Result<String, String> {
-    let v = value(it, "--device")?;
+    let v = value(it, "--device")?.text;
     let lower = v.to_ascii_lowercase();
     if exts
         .iter()
@@ -290,12 +320,12 @@ fn device_value<'a>(
              qybit --device '{{0.0.0.00000000}}.{{…}}' a.wav"
         ));
     }
-    Ok(v)
+    Ok(v.to_string())
 }
 
-fn value<'a>(it: &mut impl Iterator<Item = &'a str>, flag: &str) -> Result<String, String> {
+fn value<'a>(it: &mut impl Iterator<Item = Arg<'a>>, flag: &str) -> Result<Arg<'a>, String> {
     match it.next() {
-        Some(v) if !v.is_empty() && !v.starts_with("--") => Ok(v.to_string()),
+        Some(v) if !v.text.is_empty() && !v.text.starts_with("--") => Ok(v),
         _ => Err(format!("{flag} 需要一个值")),
     }
 }
@@ -306,9 +336,68 @@ mod tests {
 
     fn p(a: &[&str]) -> Result<Command, String> {
         parse(
-            &a.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            &a.iter().map(OsString::from).collect::<Vec<_>>(),
             &qy_player::assembly::BUILTIN_EXTENSIONS,
         )
+    }
+
+    /// 单独的 `--` 之后都是文件（文件名以 `-` 开头时用）；`--` 之前的选项照常解析。
+    #[test]
+    fn double_dash_ends_options() {
+        let Ok(Command::Play {
+            files,
+            mono_to_stereo,
+            ..
+        }) = p(&[
+            "--device",
+            "hw:0,0",
+            "--mono-to-stereo",
+            "a.wav",
+            "--",
+            "-b.wav",
+            "--volume",
+        ])
+        else {
+            panic!("应解析为播放命令");
+        };
+        assert!(mono_to_stereo);
+        let want: Vec<PathBuf> = vec!["a.wav".into(), "-b.wav".into(), "--volume".into()];
+        assert_eq!(files, want);
+        // 没有 `--` 时以 - 开头的参数仍按选项处理。
+        assert_eq!(
+            p(&["--device", "hw:0,0", "-b.wav"]),
+            Err("未知参数：-b.wav".into())
+        );
+        assert_eq!(
+            p(&["--device", "hw:0,0", "--"]),
+            Err("至少需要一个音频文件".into())
+        );
+    }
+
+    /// 文件名不是 UTF-8（旧编码留下的文件名）：路径原样保留，不因此出错；选项的识别不受影响。
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_file_names_are_kept_verbatim() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let raw = |b: &[u8]| OsString::from_vec(b.to_vec());
+        let exts = &qy_player::assembly::BUILTIN_EXTENSIONS;
+        let play = [
+            "--device".into(),
+            "hw:0,0".into(),
+            raw(b"\xC4\xE3\xBA\xC3.flac"),
+        ];
+        let Ok(Command::Play { files, .. }) = parse(&play, exts) else {
+            panic!("应解析为播放命令");
+        };
+        assert_eq!(files[0].as_os_str().as_bytes(), b"\xC4\xE3\xBA\xC3.flac");
+        let decode = ["decode".into(), raw(b"in\xFF.wav"), raw(b"out\xFF.wav")];
+        let Ok(Command::Decode { input, out }) = parse(&decode, exts) else {
+            panic!("应解析为 decode 命令");
+        };
+        assert_eq!(input.as_os_str().as_bytes(), b"in\xFF.wav");
+        assert_eq!(out.as_os_str().as_bytes(), b"out\xFF.wav");
+        // 不是 UTF-8 的参数不会被当成任何选项；出现在选项位置时照常报错（按替换字符显示）。
+        assert!(parse(&[raw(b"\xFF")], exts).is_err());
     }
 
     #[test]

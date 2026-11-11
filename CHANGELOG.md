@@ -2,6 +2,26 @@
 
 版本规则与对外接口的范围见 [docs/e4-versioning.md](docs/e4-versioning.md)。0.x 阶段次版本号变化表示有破坏性修改，写在该版本的“破坏性”小节。插件仓库按 tag 以 git 依赖（暂不发布 crates.io）。
 
+## 未发布
+
+### 许可
+
+- 许可由 MIT OR Apache-2.0 改为 PolyForm Noncommercial License 1.0.0（`LICENSE`、`NOTICE`）：非商业用途免费，商业用途须取得商业许可并付费（2026-11-11 用户决定）。`v0.1.0` 及更早的提交仍按当时的 MIT OR Apache-2.0。
+
+### 修复
+
+- 引擎：控制队列容量不足（6 格）。开启单声道复制与浮点转整数的曲目遇到非有限样本、解码器又有 2 条以上结构修正时，`DrainDevice` 或 `TrackSkipped` 被丢弃，引擎停在等待设备排空；3 条以上时 `Close` 也丢失。容量按一轮 `poll` 的最坏情况重新确定。官方解码器走不到这条路径，带结构修正的插件解码器可以触发。
+- 命令行：文件名不是 UTF-8 时不再 panic（参数改为按系统原样读取）；`qybit decode` 解到一半出错时退出码为 1（此前为 0）。
+- Linux：SIGTERM 与 SIGHUP 同 Ctrl+C 一样先停止播放并恢复设备硬件音量（此前进程被直接结束，音量停在播放时的值）。
+- FLAC：码流之后的数据（文件末尾的 ID3v1 标签、填充）不再使曲目以 `LostSync` 失败、播放列表停止；声明的总样本数已解满时正常结束并写明（[tasks/W2.md](tasks/W2.md)）。
+
+### 对外接口（只有新增，没有破坏性修改）
+
+- `qybit::run_args_os(&formats, &[OsString])`；`run_args(&[String])` 不变。
+- `qy_player::Diagnostics::end_notes`（带默认实现）。
+- `FlacDecoder::trailing_data`、`AutoDecoder::trailing_data`。
+- 命令行：播放命令中单独的 `--` 之后的参数都按文件处理。
+
 ## [0.1.0] - 2026-10-19
 
 第一个版本 tag。此前各 crate 版本为 `0.0.0`，没有兼容承诺。

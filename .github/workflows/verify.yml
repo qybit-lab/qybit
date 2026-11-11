@@ -8,10 +8,31 @@ on:
     - cron: "17 3 * * 1"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # 依赖的已知漏洞（RustSec 公告库）：主工作区与各独立工作区的锁文件。有漏洞即失败；“不再维护”
+  # “已撤回”只作为警告列出。工具版本锁定。
+  audit:
+    name: 依赖漏洞扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: cargo install --locked cargo-audit --version 0.22.2
+      - name: 扫描各锁文件
+        run: |
+          status=0
+          for d in . crates/qy-board crates/qy-mcu-demo tools/gui-proto-linux fuzz; do
+            echo "== $d"
+            (cd "$d" && cargo audit) || status=1
+          done
+          exit $status
+
   # Kani：pack 单样本放置、CRC-8/16、WAV 与 FLAC 头部、AIFF 80 位采样率。证明失败即作业失败。
   kani:
     name: Kani 证明

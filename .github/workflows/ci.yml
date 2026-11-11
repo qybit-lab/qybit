@@ -4,10 +4,29 @@ on:
   push:
   pull_request:
 
+# 各作业只需读取仓库内容（构件上传不需要额外权限）。
+permissions:
+  contents: read
+
+# 同一分支上有新的推送时，取消尚未跑完的旧运行；main 上的每次运行都保留（提交记录里会引用）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # 声明的最低 Rust 版本（Cargo.toml 的 rust-version，README“从源码构建”）：用该版本检查整个
+  # 工作区能编译。`+1.88.0` 覆盖 rust-toolchain.toml 固定的开发版本。
+  msrv:
+    name: 最低 Rust 版本 (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - run: cargo +1.88.0 check --locked --workspace --all-targets
+
   # 通用模块：Linux 与 Windows 均执行格式检查、Clippy 与测试。
   generic:
     name: 通用模块 (${{ matrix.os }})

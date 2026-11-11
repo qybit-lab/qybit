@@ -113,6 +113,12 @@ pub trait Diagnostics {
     fn source_notes(&self, out: &mut Vec<String>) {
         let _ = out;
     }
+
+    /// 当前曲目结束时才知道的说明（如“音频之后还有不属于码流的数据，未读取”），每条一行；关闭
+    /// 曲目时报告，`qybit decode` 也输出。只说明没有改变样本的处理。
+    fn end_notes(&self, out: &mut Vec<String>) {
+        let _ = out;
+    }
 }
 
 impl Diagnostics for AutoDecoder {
@@ -126,6 +132,16 @@ impl Diagnostics for AutoDecoder {
             && !t.is_plain()
         {
             out.push(format!("样本类型：{}", t.describe()));
+        }
+    }
+
+    fn end_notes(&self, out: &mut Vec<String>) {
+        if self.trailing_data() {
+            out.push(
+                "FLAC 码流已按文件头声明的总样本数解码完整；其后还有不属于码流的数据\
+                 （如 ID3v1 标签或填充），未读取，样本不受影响"
+                    .into(),
+            );
         }
     }
 

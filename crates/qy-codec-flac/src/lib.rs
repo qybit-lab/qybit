@@ -364,6 +364,9 @@ pub struct FlacDecoder {
     skip: u64,
     /// 等待核心取走的跳转位置（S1）。
     request: Option<u64>,
+    /// 码流按 STREAMINFO 声明的总样本数解码完整之后，还有不是 FLAC 帧的数据（见
+    /// [`FlacDecoder::trailing_data`]）。
+    trailing: bool,
     #[cfg(any(test, feature = "test-metrics"))]
     metrics: Metrics,
     /// 识别模式（E3，[`identify`]）：没有工作区、容量不设限，元数据读完即停。
@@ -451,6 +454,7 @@ impl FlacDecoder {
             seeking: None,
             skip: 0,
             request: None,
+            trailing: false,
             #[cfg(any(test, feature = "test-metrics"))]
             metrics: Metrics::default(),
             probe: false,
@@ -499,6 +503,29 @@ impl FlacDecoder {
     pub fn declared_frames(&self) -> Option<u64> {
         self.info
             .and_then(|i| (i.total_samples != 0).then_some(i.total_samples))
+    }
+
+    /// 当前曲目是否在音频之后带有不属于 FLAC 码流的数据（宿主据此在报告中写明）。
+    ///
+    /// STREAMINFO 声明了总样本数（RFC 9639 §8.2，非 0）且已解码的样本数恰好等于它时，码流按自己的
+    /// 声明已经完整；其后的字节若不能解码为一帧（常见为 ID3v1 等附加在文件末尾的标签，或填充），
+    /// 就不属于码流：不读取，曲目正常结束。样本不受影响，一个都不多、不少。其后若是有效的帧
+    /// （实际样本多于声明），照旧解码并以 [`FlacError::TotalSamplesMismatch`] 报错；总样本数未知
+    /// （0）时无从判断，照旧按码流错误报告。参考：libFLAC 1.3.4 `frame_sync_` 在解满总样本数后
+    /// 即结束（注释写明为避免在 ID3v1 标签上找同步）；1.4 起改为继续找同步并给出 LOST_SYNC 状态，
+    /// 两者交给应用的样本相同。
+    pub fn trailing_data(&self) -> bool {
+        self.trailing
+    }
+
+    /// 码流已按声明完整、其后不是帧：记下并正常结束，其后的字节不读取。
+    fn end_with_trailing(&mut self, consumed: usize) -> Result<Progress, DecodeError> {
+        self.trailing = true;
+        self.state = State::End;
+        Ok(Progress {
+            consumed,
+            status: Status::End,
+        })
     }
 
     #[cfg(any(test, feature = "test-metrics"))]
@@ -890,6 +917,8 @@ impl FlacDecoder {
                     status: Status::End,
                 });
             }
+            // 声明的总样本数已解满：此后解不出帧的字节不属于码流（见 `trailing_data`）。
+            let complete = info.total_samples != 0 && self.decoded_samples == info.total_samples;
             // 未达门槛且未 EOF：不重新解析。
             if !eof && avail.len() < self.retry_at {
                 return Ok(Progress {
@@ -950,6 +979,7 @@ impl FlacDecoder {
                         status: Status::Frames(d.block_size - drop),
                     });
                 }
+                Err(frame::FrameError::Bad(_)) if complete => return self.end_with_trailing(pos),
                 Err(frame::FrameError::Bad(e)) => return self.fail(e),
                 Err(frame::FrameError::Incomplete) => {
                     #[cfg(any(test, feature = "test-metrics"))]
@@ -957,6 +987,10 @@ impl FlacDecoder {
                         self.metrics.incomplete_attempts += 1;
                     }
                     let n = slice.len();
+                    // 码流已完整，其后的字节到窗口装满或源结束也凑不成一帧：不属于码流。
+                    if complete && (eof || n >= window) {
+                        return self.end_with_trailing(pos);
+                    }
                     // 窗口之外还有数据：帧超出窗口容量，不是截断（即使已到 EOF）。
                     if avail.len() > window {
                         return self.fail(FlacError::FrameTooLarge);
@@ -1324,6 +1358,7 @@ impl Decoder for FlacDecoder {
         self.seeking = None;
         self.skip = 0;
         self.request = None;
+        self.trailing = false;
     }
 
     fn format(&self) -> Option<SourceFormat> {

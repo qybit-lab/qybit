@@ -426,6 +426,16 @@ impl AutoDecoder {
         self.tag_bytes
     }
 
+    /// 当前曲目是 FLAC，且码流按声明的总样本数解码完整之后还有不属于码流的数据（如文件末尾的
+    /// ID3v1 标签），见 [`FlacDecoder::trailing_data`]。未链接 FLAC 时恒为假。
+    pub fn trailing_data(&self) -> bool {
+        #[cfg(feature = "flac")]
+        if let (Codec::Flac, Some(f)) = (self.codec, &self.flac) {
+            return f.trailing_data();
+        }
+        false
+    }
+
     /// 识别前的处理：跳过 ID3v2 标签并读取容器标记。`Ok(pos)` 表示已识别，容器从 `input[pos..]`
     /// 开始；`Err` 为本次调用的结果（缺输入或错误）。
     fn locate(&mut self, input: &[u8], eof: bool) -> Result<usize, Result<Progress, DecodeError>> {
