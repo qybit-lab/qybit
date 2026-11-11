@@ -186,7 +186,8 @@ pub fn playback_hint(device: &str) -> Option<String> {
 }
 
 /// 播放期间的设备硬件音量（A4）：创建时设置音量并打开同组的静音开关，[`restore`](Self::restore)
-/// 或析构时恢复原值。进程被强制结束（如第二次 Ctrl+C、SIGKILL）时来不及恢复。
+/// 或析构时恢复原值。Ctrl+C、SIGTERM 与 SIGHUP 第一次都只请求停止（见 `interrupt`），恢复照常进行；
+/// 进程被强制结束（第二次信号、SIGKILL）时来不及恢复。
 pub struct PlaybackVolume {
     mixer: CardMixer,
     /// 改动过的元素与原值（播放前的值）。
