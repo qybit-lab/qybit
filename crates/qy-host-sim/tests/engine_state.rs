@@ -260,26 +260,39 @@ fn device_lost_stops_without_drain_and_reopens_on_play() {
     assert!(m.host.engine.device_format().is_some());
 }
 
-/// 控制动作队列（6 项）溢出时不覆盖已排队的动作，计为协议错误：宿主应在每次控制后取走动作。
+/// 控制动作队列溢出时不覆盖已排队的动作，计为协议错误：宿主应在每次控制后取走动作。
+///
+/// 队列容量为 `9 + MAX_REPAIRS + 3`（`qy_core::engine` 的 `OUTBOX`：一轮 `poll` 之内最多排入
+/// `9 + MAX_REPAIRS` 条，另留 3 条给两次 `poll` 之间的控制调用；原为 6，一轮之内就可能溢出，见
+/// `crates/qy-core/tests/outbox.rs`）。这里不取走动作、连续暂停与恢复，直到超出容量两对。
 #[test]
 fn control_outbox_overflow_is_counted() {
+    const CAPACITY: usize = 9 + qy_core::engine::MAX_REPAIRS + 3;
+    assert_eq!(CAPACITY % 2, 0, "下面按“暂停、恢复”成对计数");
     let files = vec![wav(48_000, 2, 16, 300_000)];
     let mut m = Mini::new(files);
     m.host.engine.play(0, 1);
     assert_eq!(m.run(false), Poll::Wait(Wait::QueueFull));
     assert!(m.started);
-    for _ in 0..4 {
+    // 容量之内不丢、不计错误。
+    for _ in 0..CAPACITY / 2 {
         m.host.engine.pause();
         m.host.engine.resume();
     }
-    assert_eq!(m.host.engine.stats().protocol_errors, 2);
+    assert_eq!(m.host.engine.stats().protocol_errors, 0);
+    // 再多两对：四个动作放不下，逐个计为协议错误。
+    for _ in 0..2 {
+        m.host.engine.pause();
+        m.host.engine.resume();
+    }
+    assert_eq!(m.host.engine.stats().protocol_errors, 4);
     let mut taken = Vec::new();
     while let Some(a) = m.host.engine.take_control() {
         taken.push(a);
     }
     assert_eq!(
         taken,
-        [HostAction::PauseDevice, HostAction::ResumeDevice].repeat(3)
+        [HostAction::PauseDevice, HostAction::ResumeDevice].repeat(CAPACITY / 2)
     );
 }
 
