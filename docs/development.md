@@ -40,6 +40,10 @@ cargo build --target thumbv7em-none-eabihf -p qy-host-embedded
 (cd crates/qy-board && cargo build --release --target thumbv7em-none-eabihf --features stm32f411)   # 板级适配，按板选特性，只编译
 ```
 
+最低 Rust 版本（`Cargo.toml` 的 `rust-version`）由 CI 的 `msrv` 作业核对：`cargo +1.88.0 check --locked --workspace --all-targets`。
+
+依赖的已知漏洞每周由 `verify.yml` 的 `audit` 作业扫描（`cargo-audit` 0.22.2，RustSec 公告库），本地在各工作区目录（根目录、`crates/qy-board`、`crates/qy-mcu-demo`、`tools/gui-proto-linux`、`fuzz`）运行 `cargo audit`。有漏洞即失败；“不再维护”“已撤回”只作为警告列出。
+
 MCU 演示（需要 `qemu-system-arm` ≥ 8，`mps2-an386`）：
 
 ```sh

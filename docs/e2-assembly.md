@@ -41,7 +41,7 @@ pub struct TrackInfo { pub label: &'static str, pub format: SourceFormat, pub fr
 
 | crate | 入口 | 格式集合用在 |
 | --- | --- | --- |
-| `qybit` | `qybit::run(formats) -> ExitCode`；`qybit::run_args(&formats, &args)` | `--help` 的格式名称；`decode` 的解码器与补充说明；播放资源；`--device` 后误跟音频文件名的识别 |
+| `qybit` | `qybit::run(formats) -> ExitCode`；`qybit::run_args(&formats, &args)`；`qybit::run_args_os(&formats, &args)`（参数为 `OsString`，文件路径可以不是 UTF-8；`run` 用它） | `--help` 的格式名称；`decode` 的解码器与补充说明；播放资源；`--device` 后误跟音频文件名的识别 |
 | `qybit-gui` | `qybit_gui::run(formats) -> ExitCode`（Windows 原生控件、Linux 自绘，其他平台明确报错） | 播放、文件信息读取、文件夹扫描、Windows 文件对话框的筛选（运行时按扩展名生成）、Linux 文件面板的筛选与标题、“关于”中的格式名称 |
 | `qy-ui` | `Ui::with_formats(formats, make_backend, notify)`（`Ui::new` 等于传入 `Builtin`）；`Ui::extensions()`、`format_names()`、`is_audio_path()` | 同上（Windows 与 Linux 前端共用） |
 

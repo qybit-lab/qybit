@@ -61,9 +61,11 @@ embedded-sdmmc = { version = "=0.10.0", default-features = false }
 embedded-storage = { version = "=0.3.2", default-features = false }
 # MCU 一次性静态零缓冲（ConstStaticCell），仅 qy-codec-flac 的 static-cell 特性使用。
 static_cell = { version = "=2.1.1", default-features = false }
-# ALSA 绑定（封装系统 alsa-lib），仅 Linux 目标使用（M2 T3）。
+# ALSA 绑定（封装系统 alsa-lib）：只在 qy-host-alsa 的可选特性 `alsa-lib` 下使用（CI 的 A 层回环
+# 测试）；A1 起发布版直接使用内核接口，不链接它。
 alsa = { version = "=0.12.1", default-features = false, features = ["std"] }
-# 渲染线程实时调度（sched_setscheduler），仅 Linux 目标使用；版本与锁文件中 alsa 的依赖一致。
+# Linux 系统调用：内核 ALSA 接口的 ioctl / poll / fcntl（A1）、渲染线程实时调度
+# （pthread_setschedparam）与信号处理，仅 Linux 目标使用；版本与锁文件中 alsa 的依赖一致。
 libc = { version = "=0.2.190", default-features = false }
 # Windows SDK 绑定（WASAPI / COM），仅 Windows 目标使用。
 windows = { version = "=0.62.2", default-features = false }
