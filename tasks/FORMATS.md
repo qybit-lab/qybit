@@ -22,6 +22,7 @@
 | --- | --- | --- | --- |
 | F1 | 多声道（[任务卡](F1.md)；软件部分已完成、真实多声道设备未运行，见 [docs/f1-multichannel.md](../docs/f1-multichannel.md)） | FLAC 1–8 声道（RFC 9639 声道分配）、WAV EXTENSIBLE 声道掩码；声道顺序精确映射到 WASAPI 声道掩码、ALSA 声道映射（chmap）；设备不支持该布局时明确拒绝 | 不改变样本 |
 | W1 | 真实世界 WAV 的容错与 8 位 PCM（[任务卡](W1.md)；已完成，见 [docs/w1-wav-tolerance.md](../docs/w1-wav-tolerance.md)） | 流式占位长度、RIFF 长度写错、不完整尾帧等意图明确的情形可播放并报告修正；有歧义的照旧拒绝；8 位无符号 PCM 精确转为有符号 | 不改变样本 |
+| W2 | FLAC 码流之后的数据（[任务卡](W2.md)；已完成，见 [docs/m1-t2-flac.md](../docs/m1-t2-flac.md)） | 文件末尾的 ID3v1 标签、填充：声明的总样本数已解满时正常结束并报告，不改样本；有歧义的照旧报错 | 不改变样本 |
 | F2 | AIFF / AIFF-C（未压缩 `NONE`）（[任务卡](F2.md)；已完成，见 [docs/f2-aiff.md](../docs/f2-aiff.md)；规范出处见 [docs/specs.md](../docs/specs.md)） | 大端 PCM，1–32 位左对齐补码 | 不改变样本 |
 | F3 | 浮点 PCM（[任务卡](F3.md)；软件部分已完成，[记录](../docs/f3-float.md)） | 设备接受相同浮点格式时原样输出；不接受时严格路径拒绝；明确开启、报告标为“样本已改变”的转为整数选项 | 原样输出时不改变；转换时改变 |
 | F4 | WAV RF64 / BW64（[任务卡](F4.md)；软件部分已完成，见 [docs/f4-rf64.md](../docs/f4-rf64.md)；已按 BS.2088-2 原文核对） | `ds64` 块给出 64 位长度，支持超过 4 GiB 的 WAV；块大小表；流式写入程序的占位值按 W1 规则处理 | 不改变样本 |

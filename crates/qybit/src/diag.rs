@@ -194,6 +194,12 @@ pub fn decode<F: Formats>(formats: &F, input: &Path, out: &Path) -> Result<Decod
             d.skipped_tag_bytes()
         ));
     }
+    let mut notes = Vec::new();
+    d.end_notes(&mut notes);
+    for n in notes {
+        msg.push('\n');
+        msg.push_str(&n);
+    }
     for i in 0..d.repair_count() {
         if let Some(r) = d.repair(i) {
             msg.push_str(&format!("\n按规则修正文件结构：{r}（样本未改动）"));

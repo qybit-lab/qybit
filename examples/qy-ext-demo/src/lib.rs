@@ -392,6 +392,12 @@ impl Diagnostics for ExtDecoder {
             self.auto.source_notes(out);
         }
     }
+
+    fn end_notes(&self, out: &mut Vec<String>) {
+        if self.active == Some(Active::Auto) {
+            self.auto.end_notes(out);
+        }
+    }
 }
 
 // ---- 内存音源 ----

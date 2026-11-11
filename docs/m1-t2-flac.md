@@ -41,7 +41,8 @@
 - **超出支持范围的**：3 声道及以上、采样率 > 192 kHz（PCM 格式层上限），都返回 `Unsupported`，不降精度、不改声道。
 - **错误明细**：`DecodeError` 是冻结接口，只有 Malformed、Unsupported、Truncated、CapacityExceeded 四类。更细的原因由 `FlacDecoder::last_error()` 给出 `FlacError`，如 `HeaderCrc`、`FrameCrc`、`NegativeShift`、`ResidualOverflow` 等。
 - **不校验 MD5**（STREAMINFO 的 MD5 为全零时表示未知）。帧尾 CRC-16 已经保证帧数据完整；整流 MD5 可以作为后续增强。
-- **不做失步重同步**：遇到同步码不符、帧尾之后有多余字节等情况，都明确报错，不跳过。
+- **不做失步重同步**：码流中途遇到同步码不符、帧尾之后有多余字节等情况，都明确报错，不跳过。
+- **码流之后的数据**（W2，2026-11-11，[任务卡](../tasks/W2.md)）：STREAMINFO 声明的总样本数（§8.2，非 0）已解满、其后的字节解不出一帧时，码流按自己的声明已经完整，其后的字节（常见为文件末尾的 ID3v1 标签或填充）不属于码流：不读取，曲目正常结束，`FlacDecoder::trailing_data()` 为真，播放器与 `qybit decode` 写明。其后若是有效的帧（实际样本多于声明）仍以 `TotalSamplesMismatch` 报错；总样本数未知时无从判断，仍按码流错误报告。参考 libFLAC 1.3.4 `frame_sync_`（解满总样本数即结束，注释写明为避免在 ID3v1 标签上找同步）；1.4 起改为继续找同步码并给出一次 `LOST_SYNC` 状态，交给应用的样本相同。
 
 ## 测试统计（特性 `test-metrics`）
 
